@@ -262,6 +262,19 @@ def index():
         return redirect(url_for('home'));
     return redirect(url_for('login'))
 
+@app.route("/keep-db-alive")
+def keep_db_alive():
+    try:
+        import psycopg2
+        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+        cur = conn.cursor()
+        cur.execute("SELECT 1;")
+        conn.close()
+        return "DB Alive ✅", 200
+    except Exception as e:
+        print("DB Ping Error:", e)
+        return "DB Error ❌", 500
+
 @app.route('/admin/rooms')
 @admin_required
 def room_list():
