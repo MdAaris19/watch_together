@@ -15,7 +15,7 @@ from botocore.exceptions import ClientError
 from datetime import datetime,timezone
 
 app=Flask(__name__)
-app.secret_key='my_secretkey'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['UPLOAD_FOLDER']='static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024 
