@@ -7,7 +7,7 @@ from werkzeug.security import check_password_hash,generate_password_hash
 from werkzeug.utils import secure_filename
 from flask_socketio import SocketIO,emit,join_room,leave_room
 from functools import wraps
-import os,socket,zipfile,io
+import os,socket,zipfile,io,hmac
 from base64 import urlsafe_b64encode,urlsafe_b64decode
 import boto3,mimetypes
 from botocore.config import Config
@@ -31,6 +31,7 @@ R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY")
 R2_BUCKET = os.environ.get("R2_BUCKET")
 R2_PUBLIC_DOMAIN = os.environ.get("R2_PUBLIC_DOMAIN") 
 R2_ENDPOINT = os.environ.get("R2_ENDPOINT")
+HEALTHCHECK_TOKEN = os.environ.get("HEALTHCHECK_TOKEN")
 
 STORAGE_THRESHOLD_BYTES = 9 * 1024 * 1024 * 1024
 
@@ -845,6 +846,42 @@ def admin_release_queue():
     else:
         flash("No queued rooms released (either none in queue or capacity full).", "warning")
     return redirect(url_for('home'))
+
+# =========================
+# SUPABASE KEEP-ALIVE (UptimeRobot)
+# =========================
+@app.route("/health/supabase", methods=["GET", "HEAD"])
+@csrf.exempt
+def health_supabase():
+    """Lightweight authenticated Supabase (Postgres) keep-alive.
+
+    Performs a minimal read (SELECT user.id ... LIMIT 1) through the
+    existing SQLAlchemy engine (authenticated via DATABASE_URL) to
+    generate real database activity so Supabase free-tier auto-pause
+    never triggers. Read-only: no writes, no schema changes.
+
+    Protected by a shared-secret ?token= query param (compared
+    against the HEALTHCHECK_TOKEN env var with a timing-safe compare).
+    Wrong/missing token returns 404 so scanners cannot discover or
+    abuse the endpoint. Returns no sensitive data — only a generic
+    ok/error status.
+
+    Supports HEAD for UptimeRobot free-plan HTTP monitors: Flask still
+    executes this view (and the DB query) for HEAD requests, stripping
+    only the response body.
+    """
+    token = request.args.get("token", "")
+    if not HEALTHCHECK_TOKEN or not hmac.compare_digest(token, HEALTHCHECK_TOKEN):
+        abort(404)
+    try:
+        User.query.with_entities(User.id).limit(1).first()
+        db.session.rollback()
+    except Exception as e:
+        db.session.rollback()
+        print("Supabase healthcheck failed:", e)
+        return jsonify({"status": "error", "supabase": "unreachable"}), 503
+    return jsonify({"status": "ok", "supabase": "reachable"}), 200
+
 
 if __name__=='__main__':
     port=int(os.environ.get('PORT',5000))
